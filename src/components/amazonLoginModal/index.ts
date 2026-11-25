@@ -36,6 +36,34 @@ export default class AmazonLoginModal {
       this.modal.show();
     });
 
+    // Obsidian's main process hardens every webContents it creates, including
+    // BrowserWindows opened by plugins, with a `will-navigate` listener that
+    // cancels http(s) navigations and hands the URL to shell.openExternal.
+    // That ejects the Amazon sign-in flow into the system browser, so the
+    // session cookies never land in our `persist:kindle-highlights` partition
+    // and `did-navigate` never reaches the Kindle Reader URL (upstream #337).
+    // Obsidian registers the listener once at `web-contents-created`, guarded
+    // by an `isSecured` flag, so removing it here is sufficient and it is not
+    // re-added. See upstream PR #338.
+    this.modal.webContents.removeAllListeners('will-navigate');
+
+    // Replace Obsidian's blanket guard with one scoped to this window: keep
+    // the sign-in flow inside it, but only for HTTPS URLs on the selected
+    // region's Amazon domain. Everything else is refused, and never handed to
+    // the system browser.
+    this.modal.webContents.on('will-navigate', (event, url) => {
+      if (!this.isAllowedNavigation(url)) {
+        event.preventDefault();
+      }
+    });
+
+    // The plugin owns this window; sign-in must not spawn extra windows.
+    try {
+      this.modal.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    } catch (error) {
+      console.warn('Kindle: unable to set window open handler', error);
+    }
+
     // If user is on the read.amazon.com url, we can safely assume they are logged in
     this.modal.webContents.on('did-navigate', (_event, url) => {
       if (url.startsWith(this.region.kindleReaderUrl)) {
@@ -60,6 +88,23 @@ export default class AmazonLoginModal {
       this.modal.close();
     }
   };
+
+  private isAllowedNavigation(url: string): boolean {
+    try {
+      const target = new URL(url);
+      if (target.protocol !== 'https:') {
+        return false;
+      }
+
+      const { hostname } = this.region;
+      return (
+        target.hostname === hostname ||
+        target.hostname.endsWith(`.${hostname}`)
+      );
+    } catch (error) {
+      return false;
+    }
+  }
 
   async doLogin(): Promise<boolean> {
     try {
