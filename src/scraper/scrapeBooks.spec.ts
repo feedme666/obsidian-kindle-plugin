@@ -16,6 +16,11 @@ describe('parseToDateString', () => {
     expect(lastAnnotatedDate).toEqual(new Date(2021, 10, 15));
   });
 
+  it('Parses English last annotated date (current Amazon Japan)', () => {
+    const lastAnnotatedDate = parseToDateString('Saturday, October 3, 2026', 'japan');
+    expect(lastAnnotatedDate).toEqual(new Date(2026, 9, 3));
+  });
+
   it('Parses French last annotated date', () => {
     const lastAnnotatedDate = parseToDateString('mardi août 30, 2022', 'france');
     expect(lastAnnotatedDate).toEqual(new Date(2022, 7, 30));

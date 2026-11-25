@@ -64,4 +64,20 @@ describe('diffBooks', () => {
     const actualBooks = diffBooks(remoteBooks, vaultBooks, new Date());
     expect(actualBooks.map((a) => a.id)).toEqual(['1']);
   });
+
+  it('Books with unparseable dates on both sides are not flagged as changed', () => {
+    const remoteBooks = [book('1', new Date('invalid'))];
+    const vaultBooks = [book('1', new Date('invalid'))];
+
+    const actualBooks = diffBooks(remoteBooks, vaultBooks, new Date());
+    expect(actualBooks).toHaveLength(0);
+  });
+
+  it('Books with an unparseable vault date but a valid remote date are flagged once', () => {
+    const remoteBooks = [book('1', new Date('October 3, 2026'))];
+    const vaultBooks = [book('1', new Date('invalid'))];
+
+    const actualBooks = diffBooks(remoteBooks, vaultBooks, new Date('December 1, 2099'));
+    expect(actualBooks.map((a) => a.id)).toEqual(['1']);
+  });
 });

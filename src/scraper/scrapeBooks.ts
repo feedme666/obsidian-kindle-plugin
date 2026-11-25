@@ -17,8 +17,16 @@ import { loadRemoteDom } from './loadRemoteDom';
 export const parseToDateString = (kindleDate: string, region: AmazonAccountRegion): Date => {
   switch (region) {
     case 'japan': {
-      const amazonDateString = kindleDate.substring(0, kindleDate.indexOf(' '));
-      return moment(amazonDateString, 'YYYY MM DD', 'ja').toDate();
+      // As of late 2026 Amazon Japan renders the hidden annotated date in
+      // English ("Saturday, October 3, 2026"). Older pages used
+      // "2021年11月15日 月曜日", and very old ones a bare "YYYY MM DD".
+      const candidates = [
+        moment(kindleDate, 'dddd, MMMM D, YYYY', 'en'),
+        moment(kindleDate, 'YYYY年M月D日 dddd', 'ja'),
+        moment(kindleDate.substring(0, kindleDate.indexOf(' ')), 'YYYY MM DD', 'ja'),
+      ];
+      const parsed = candidates.find((m) => m.isValid());
+      return (parsed ?? moment(kindleDate)).toDate();
     }
     case 'france': {
       return moment(kindleDate, 'MMMM D, YYYY', 'fr').toDate();
