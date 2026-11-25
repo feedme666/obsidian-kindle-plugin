@@ -9,7 +9,7 @@ import { settingsStore } from '~/store';
 import type { DiffResult } from '../diffManager';
 import { DiffManager } from '../diffManager';
 
-import { diffBooks } from './diffBooks';
+import { diffBooks, isSameDate } from './diffBooks';
 
 export default class SyncManager {
   constructor(private fileManager: FileManager) {
@@ -63,6 +63,12 @@ export default class SyncManager {
 
     if (diffs.length > 0) {
       await diffManager.applyDiffs(remoteBook, remoteHighlights, diffs);
+    } else if (remoteBook != null && !isSameDate(file.book.lastAnnotatedDate, remoteBook.lastAnnotatedDate)) {
+      // No new highlights, but the stored book properties are stale (e.g. a
+      // previously unparseable lastAnnotatedDate). Rewrite the frontmatter so
+      // the book is not flagged as changed on every subsequent sync.
+      const fileContents = await this.fileManager.readFile(file);
+      await this.fileManager.updateFile(file, remoteBook, fileContents, remoteHighlights.length);
     }
 
     return diffs;
