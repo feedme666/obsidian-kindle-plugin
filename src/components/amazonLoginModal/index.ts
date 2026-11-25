@@ -7,6 +7,13 @@ import { settingsStore } from '~/store';
 
 const { BrowserWindow: RemoteBrowserWindow } = remote;
 
+const SESSION_PARTITION = 'persist:kindle-highlights';
+
+// Cookies Amazon only sets once a real sign-in has completed. `ubid-main`
+// and `session-id` are deliberately excluded: they also appear for
+// anonymous visitors.
+const AUTH_COOKIE_NAMES = ['sessid-auth', 'x-main', 'at-main'];
+
 export default class AmazonLoginModal {
   private modal: BrowserWindow;
   private waitForSignIn: Promise<boolean>;
@@ -25,7 +32,7 @@ export default class AmazonLoginModal {
       width: 450,
       height: 730,
       webPreferences: {
-        partition: 'persist:kindle-highlights',
+        partition: SESSION_PARTITION,
       },
       show: false,
     });
@@ -67,17 +74,33 @@ export default class AmazonLoginModal {
     // If user is on the read.amazon.com url, we can safely assume they are logged in
     this.modal.webContents.on('did-navigate', (_event, url) => {
       if (url.startsWith(this.region.kindleReaderUrl)) {
-        this.modal.close();
-
-        settingsStore.actions.login();
-
-        this.resolvePromise(true);
+        this.succeed();
+        return;
       }
+
+      // After a password/OTP sign-in Amazon often lands on the store home
+      // page instead of returning to the Kindle notebook, so the reader-URL
+      // check above never fires. Fall back to the session cookies the
+      // sign-in just set on this partition.
+      void this.hasAuthenticatedSession().then((authenticated) => {
+        if (authenticated) {
+          this.succeed();
+        }
+      });
     });
 
     this.modal.on('closed', () => {
       ee.off('syncCancelRequested', this.handleCancelDuringLogin);
-      this.resolvePromise(false);
+
+      // The user may have completed sign-in and then closed the window
+      // manually because nothing auto-closed it. The cookies outlive the
+      // window, so honour the session rather than reporting a cancel.
+      void this.hasAuthenticatedSession().then((authenticated) => {
+        if (authenticated) {
+          settingsStore.actions.login();
+        }
+        this.resolvePromise(authenticated);
+      });
     });
 
     ee.on('syncCancelRequested', this.handleCancelDuringLogin);
@@ -88,6 +111,33 @@ export default class AmazonLoginModal {
       this.modal.close();
     }
   };
+
+  private succeed(): void {
+    settingsStore.actions.login();
+
+    if (!this.modal.isDestroyed()) {
+      this.modal.close();
+    }
+
+    this.resolvePromise(true);
+  }
+
+  private async hasAuthenticatedSession(): Promise<boolean> {
+    try {
+      const session = this.modal.isDestroyed()
+        ? remote.session.fromPartition(SESSION_PARTITION)
+        : this.modal.webContents.session;
+
+      const cookies: { name: string }[] = await session.cookies.get({
+        domain: this.region.hostname,
+      });
+
+      return cookies.some((cookie) => AUTH_COOKIE_NAMES.includes(cookie.name));
+    } catch (error) {
+      console.warn('Kindle: unable to inspect login session', error);
+      return false;
+    }
+  }
 
   private isAllowedNavigation(url: string): boolean {
     try {

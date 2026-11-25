@@ -15,8 +15,10 @@ const clearSessionData = (): Promise<boolean> => {
 
     return window.webContents.session.clearStorageData()
         .then(() => {
+            window.destroy();
             return Promise.resolve(true);
         }).catch(() => {
+            window.destroy();
             return Promise.resolve(false);
         });
 }

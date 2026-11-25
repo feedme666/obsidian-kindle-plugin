@@ -26,6 +26,9 @@ export default class SyncAmazon {
 
     if (!success) {
       syncCancellation.reset();
+      // Without a terminal event the sync modal would sit on
+      // "Connecting…" forever after the user closes the login window.
+      ee.emit('syncSessionFailure', 'Sign-in was cancelled — sync did not start');
       return;
     }
 
@@ -67,11 +70,17 @@ export default class SyncAmazon {
       return;
     }
 
+    // Claim the shared sync lock so a full sync cannot start while this
+    // single-book resync is running (and vice versa).
+    syncCancellation.start('amazon');
+
     ee.emit('resyncBook', file);
 
     const success = await this.login();
 
     if (!success) {
+      syncCancellation.reset();
+      ee.emit('resyncFailure', file, 'Sign-in was cancelled — resync did not start');
       return;
     }
 
@@ -79,7 +88,7 @@ export default class SyncAmazon {
       const remoteBooks = await scrapeBooks();
       const remoteBook = remoteBooks.find((r) => r.id === file.book.id);
 
-      const highlights = await scrapeHighlightsForBook(file.book);
+      const highlights = await scrapeHighlightsForBook(file.book, () => syncCancellation.isCancelled);
 
       const diffs = await this.syncManager.resyncBook(file, remoteBook, highlights);
 
@@ -87,6 +96,12 @@ export default class SyncAmazon {
     } catch (error) {
       console.error('Error resyncing higlights for file', file, error);
       ee.emit('resyncFailure', file, String(error));
+    } finally {
+      if (syncCancellation.isCancelled) {
+        syncCancellation.complete();
+      } else {
+        syncCancellation.reset();
+      }
     }
   }
 
